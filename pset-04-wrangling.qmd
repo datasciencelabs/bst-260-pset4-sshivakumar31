@@ -18,7 +18,7 @@ In this problem set we will learn how to extract and wrangle data from the data 
 1. Get an API key from the US Census at <https://api.census.gov/data/key_signup.html>. You can't share this public key. But your code has to run on a TFs computer. Assume the TF will have a file in their working directory named `census-key.R` with the following one line of code:
 
 ```
-census_key <- ""
+census_key <- "  "
 ```
 
 Write a first line of code for your problem set that defines `census_key` by running the code in the file `census-key.R`.
@@ -110,7 +110,7 @@ population <- population |>
                names_to = "year",
                values_to = "population") |>
   mutate(
-    year = str_remove(year, "POP_"),
+    year = as.numeric(str_remove(year, "POP_")),
     population = as.numeric(population),
     state = case_when(
       state_name == "District of Columbia" ~ "DC",
@@ -118,7 +118,6 @@ population <- population |>
       TRUE ~ state.abb[match(state_name, state.name)]
     )
   )
-
 
 ```
 
@@ -160,14 +159,14 @@ url <- "https://github.com/datasciencelabs/2025/raw/refs/heads/main/data/regions
 # regions <- use jsonlit JSON parser 
 # regions <- convert list to data frame. You can use map_df in purrr package 
 
-
+#
 regions <- url |>
-  fromJSON() |>
+  fromJSON(simplifyDataFrame = FALSE) |>
+  map_df(as.data.frame)|>
   mutate(region_name = ifelse(region_name == "New York and New Jersey, Puerto Rico, Virgin Islands", "(NYC, NJ, PR, VI)", region_name ))|>
   unnest(c(states, region))|>
   rename(state_name = states) |>
-  select(state_name, region, region_name) |>
-  as.data.frame() 
+  select(state_name, region, region_name) 
 
 # regions
 ```
@@ -184,7 +183,7 @@ population <- population |>
 
 
 # I added the region (numeric) and region_name (character) columns to your population data frame
-head(population)
+# head(population)
 ```
 
 
@@ -195,17 +194,10 @@ head(population)
 api <- "https://data.cdc.gov/resource/pwn4-m3yp.json"
 # cases_raw <-
 
-cases_raw <- request(api) |> req_perform() |> resp_body_string() |> fromJSON()
+cases_raw <- request(api) |> req_perform() |> resp_body_json(simplifyDataFrame = TRUE) 
+# nrow(cases_raw)
 
-
-# Check the structure of the data
-# str(cases_raw)
-# head(cases_raw)
-# summary(cases_raw)
-# 
-# 
-# # Check if there is any NA in the entire data frame
-# any(is.na(cases_raw)) # No missing values 
+# Check if there is any NA in the entire data frame
 
 # We see exactly 1,000 rows. We should be seeing over $52 \times 3$ rows per state.
 
@@ -219,14 +211,13 @@ We see exactly 1,000 rows. We should be seeing over $52 \times 3$ rows per state
 api <- "https://data.cdc.gov/resource/pwn4-m3yp.json"
 
 cases_raw <-  request(api) |>
-  req_url_query(`$limit` = 10000000000) |>  # remove default limit
-  req_perform() |>
-  resp_body_string() |>
-  fromJSON() |>
+  req_url_query(`$limit` = 10000000000) |>  # remove CDC default limit
+  req_perform() |> 
+  resp_body_json(simplifyDataFrame = TRUE) |>
 # str(cases_raw) they were all chr, need to wrangle
   mutate( 
-    date = as.Date(end_date),  # convert end_date to Date
-    cases = as.numeric(new_cases)          # convert tot_cases to numeric
+    date = as.Date(end_date),  # convert end_date to Date format
+    cases = as.numeric(new_cases)         # parse_number does the same,  # convert new_cases to numeric
   ) |>
   filter(!is.na(state),!is.na(date),!is.na(cases)) |>
   select(state, date, cases)               # keep only relevant columns
@@ -247,7 +238,7 @@ cases_raw <-  request(api) |>
 cases_raw |> 
   filter(year(date) == 2020 | year(date) == 2021) |> 
   left_join(population, by = "state") |> 
-  filter(!is.na(state),!is.na(date),!is.na(cases),!is.na(population),!is.na(region_name)) |>
+  filter(!is.na(state),!is.na(date),!is.na(cases),!is.na(population),!is.na(region_name)) |> # because result was creating a seperate plot with NA, since there were NA values. 
   ggplot(aes(x = date, y = 10^5*(cases / population) , col = state)) +
   geom_line() +
   facet_wrap(~region_name) +
@@ -271,9 +262,9 @@ cases_raw |>
   mutate(month = month(date, label = TRUE), day = day(date), year = year(date)) |>
   group_by(year, month) |>
   summarise(
-    total_cases = sum(cases)
+    total_cases = sum(cases, na.rm = TRUE) #finding the total cases across all states after selecting what groupings we want
   ) |>
-  arrange(year, month) |>
+  arrange(year, month) |> #Order by year and month
   kable()
            
   
@@ -293,9 +284,8 @@ Use **httr2** to download COVID-19 death data from this endpoint. Make sure to r
 
 death <- request(deaths_url) |>
   req_url_query(`$limit` = 10000000000) |>  
-  req_perform() |>
-  resp_body_string() |>
-  fromJSON() |>
+  req_perform() |> 
+  resp_body_json(simplifyDataFrame = TRUE) |>
   drop_na(covid_19_deaths, end_date) |>
   summarize(state = state, death = as.numeric(covid_19_deaths), date = as.Date(end_date)) |> 
   select(state, date, death) |>
@@ -311,7 +301,7 @@ death <- request(deaths_url) |>
 death |> 
   group_by(state) |> 
   summarize(total_deaths = sum(death), .groups = "drop") |> 
-  slice_max(total_deaths, n = 10) |>
+  slice_max(total_deaths, n = 10) |> 
   ggplot(aes(x = reorder(state, total_deaths, decreasing = TRUE) , y = total_deaths)) +
   geom_col() +
   labs(
