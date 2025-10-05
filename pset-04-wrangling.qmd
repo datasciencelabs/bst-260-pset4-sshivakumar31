@@ -26,7 +26,7 @@ Write a first line of code for your problem set that defines `census_key` by run
 ```{r}
 ## Your code here
 census_key <- source("census-key.R")
-
+# Seperate file which I didnt commit
 ```
 
 2. The [US Census API User Guide](https://www.census.gov/content/dam/Census/data/developers/api-user-guide/api-user-guide.pdf)
@@ -35,6 +35,8 @@ provides details on how to leverage this valuable resource. We are interested in
 
 ```{r}
 url <- "https://api.census.gov/data/2021/pep/population"
+# messy data
+# base address for the Census Bureau API endpoint
 ```
 
 Use the **httr2** package to construct the following GET request.
@@ -52,12 +54,12 @@ Hint: Print out `request` to check that the URL matches what we want.
 
 
 library(httr2)
-request <- request(url) |>
-  req_url_query(
-    get = "POP_2020,POP_2021,NAME",
-    `for` = "state:*",
-    key = census_key$value 
-  )
+request <- request(url) |> #creates a new HTTP request object
+  req_url_query( 
+    get = "POP_2020,POP_2021,NAME", #name of the query parameter being set. Based on Census API documentation, this is the standard parameter name for specifying the variables to retrieve:the population for 2020, the population for 2021, and the name of the geographic area. 
+    `for` = "state:*", #retreiving geographic level, * is a wildcard that tells the Census API to retrieve data for all states
+    key = census_key$value #The Census API requires a key for access (my key I put into the .R file)
+  ) #adds query parameters to the URL of the request object. Query parameters are the key=value pairs that come after the ? in a web address. 
 request
 
 ```
@@ -66,8 +68,11 @@ request
 
 
 ```{r}
-response <- request |> req_perform()
+response <- request |> req_perform() # contains all the information received from the server, including the status code, content, and headers.
 response$status_code
+#performs or executes the HTTP request. It sends the request to the target server and waits for the server's reply.
+#`req_perform()` performs a request, fetching results. It returns an HTTP response on success, or an error if the request fails or has an error status code.
+#The status code is a three-digit number that tells  if the request was successful or if an error occurred ( 200 OK, 404 Not Found, 500 Server Error). 
 ```
 
 4. Use a function from the **httr2** package to determine the content type of your response.
@@ -75,6 +80,9 @@ response$status_code
 ```{r}
 # Your code here
 resp_content_type(response)
+#`resp_content_type()` returns the content type and subtype, or NA if no header. 
+#application/json for data
+
 ```
 
 5. Use just one line of code and one function to extract the data into a matrix. 
@@ -82,6 +90,8 @@ Hints: 1) Use the `resp_body_json` function. 2) The first row of the matrix will
 
 ```{r}
 population <- resp_body_json(response, simplifyVector = TRUE)
+#This function takes the response object and tries to parse the content of its body as JSON (JavaScript Object Notation).
+#USed simply vector: to convert JSON arrays (lists) into simpler R data types, such as vectors or data frames, whenever possible. If this were FALSE, all arrays would be loaded as more complex R lists.
 ```
 
 6. Examine the `population` matrix you just created. Notice that 1) it is not tidy, 2) the column types are not what we want, and 3) the first row is a header. Convert `population` to a tidy dataset. Remove the state ID column and change the name of the column with state names to `state_name`. Add a column with state abbreviations called `state`. Make sure you assign the abbreviations for DC and PR correctly. Hint: Use the **janitor** package to make the first row the header. 
@@ -103,19 +113,22 @@ library(janitor)
 
 population <- population |>
   as_tibble() |>
-  row_to_names(row_number = 1) |> # janitor function to col names as
-  select(-state) |>
+  row_to_names(row_number = 1) |> # janitor function to col names:takes the first row of the data and uses its values to set the column names. The original first row is then removed 
+  select(-state) |> #removes the column named state from the dataset
   rename(state_name = NAME) |>
-  pivot_longer(cols = starts_with("POP"),
-               names_to = "year",
-               values_to = "population") |>
+  pivot_longer(cols = starts_with("POP"), #selects all columns whose names begin with "POP"
+               names_to = "year", #takes the original column names (e.g., "POP_2020") and moves them into a new column called year
+               values_to = "population") |> #takes the values from those original columns and moves them into a new column called population
+  #each row represents a unique combination of state_name, year, and population
   mutate(
-    year = as.numeric(str_remove(year, "POP_")),
-    population = as.numeric(population),
-    state = case_when(
-      state_name == "District of Columbia" ~ "DC",
+    year = as.numeric(str_remove(year, "POP_")), # finds the string "POP_" in the year column and removes it, leaving just the year number  ("POP_2020" becomes "2020")
+    population = as.numeric(population), #converts the population column, which is currently text, into a numeric data type. This is necessary because pivot_longer and other functions sometimes treat numbers as tex
+    state = case_when( #creates a new column called state containing the state abbreviations. It works like an "if-else" statement
+      state_name == "District of Columbia" ~ "DC", # If the state_name is "District of Columbia", the abbreviation is set to "DC" 
       state_name == "Puerto Rico" ~ "PR",
-      TRUE ~ state.abb[match(state_name, state.name)]
+      TRUE ~ state.abb[match(state_name, state.name)] #For all other cases (TRUE), it finds the corresponding abbreviation.state.name is a built-in R vector with all US state names
+    # match(state_name, state.name) finds the position of the state_name from our dataset in the state.name vector. 
+    #state.abb uses that position to find the correct abbreviation from the built-in state.abb vector
     )
   )
 
@@ -131,6 +144,7 @@ population <- population |>
   # flip coordinates
   # facet by year
 
+# y-axis is a better place for long state names
 population |>
   ggplot(aes(x = reorder(state_name, population), y = population)) +
   geom_col() +
@@ -161,11 +175,15 @@ url <- "https://github.com/datasciencelabs/2025/raw/refs/heads/main/data/regions
 
 #
 regions <- url |>
-  fromJSON(simplifyDataFrame = FALSE) |>
-  map_df(as.data.frame)|>
+  fromJSON(simplifyDataFrame = FALSE) |> #False to stop immediately converting the JSON into a data.frame. It reads the data into a list of lists, which allows for more control. Preserved as nested lists
+  map_df(as.data.frame)|> # iterates through each element of a list, applies as.data.frame, and combines the results into a single df
   mutate(region_name = ifelse(region_name == "New York and New Jersey, Puerto Rico, Virgin Islands", "(NYC, NJ, PR, VI)", region_name ))|>
-  unnest(c(states, region))|>
+  unnest(c(states, region))|> # TA said using unest is fine
+  #expands nested list columns into new rows.
+  #takes the states and region columns
+  # each row represents one state with its region and region_name
   rename(state_name = states) |>
+  filter(state_name %in% c(state.name, "District of Columbia", "Puerto Rico")) |>
   select(state_name, region, region_name) 
 
 # regions
@@ -181,9 +199,12 @@ regions <- url |>
 population <- population |>
   left_join(regions, by = "state_name")
 
+# Left join over-view:
+# population data frame will be updated to include new columns from the regions data frame.
+# All rows from the original population data frame are kept.
+# For each row in population, the corresponding data from regions is added if the state_name values match.
+# If a state_name in the population data frame does not have a match in the regions data frame, the new columns from regions will have NA (missing) values.
 
-# I added the region (numeric) and region_name (character) columns to your population data frame
-# head(population)
 ```
 
 
@@ -195,6 +216,9 @@ api <- "https://data.cdc.gov/resource/pwn4-m3yp.json"
 # cases_raw <-
 
 cases_raw <- request(api) |> req_perform() |> resp_body_json(simplifyDataFrame = TRUE) 
+#parses the content of the response body from a JSON string into a structured R object. resp_body_json() returns parsed JSON.
+# simplifyDataFrame convert the JSON data into a clean, easy-to-use R data frame
+
 # nrow(cases_raw)
 
 # Check if there is any NA in the entire data frame
@@ -239,14 +263,15 @@ cases_raw |>
   filter(year(date) == 2020 | year(date) == 2021) |> 
   left_join(population, by = "state") |> 
   filter(!is.na(state),!is.na(date),!is.na(cases),!is.na(population),!is.na(region_name)) |> # because result was creating a seperate plot with NA, since there were NA values. 
-  ggplot(aes(x = date, y = 10^5*(cases / population) , col = state)) +
-  geom_line() +
+  ggplot(aes(x = date, y = 10^5*(cases / population) , col = state)) + # y-axis represents the calculated value of cases per 100,000 (cases divided by population, multiplied by 100,000)
+  geom_line() + #creating the time series
   facet_wrap(~region_name) +
   labs(
     title = "COVID-19 Cases per 100,000 by State (2020-2021)",
     x = "Date",
     y = "Cases per 100,000"
-  )
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) #for readbility of x-axis
 
 
 ```
@@ -259,12 +284,12 @@ library(lubridate)
 
 cases_raw |> 
   filter(year(date) == 2020 | year(date) == 2021) |> 
-  mutate(month = month(date, label = TRUE), day = day(date), year = year(date)) |>
+  mutate(month = month(date, label = TRUE), day = day(date), year = year(date)) |> #three new columns for the month, day, and year, extracting each from the date column using lubridate
   group_by(year, month) |>
   summarise(
     total_cases = sum(cases, na.rm = TRUE) #finding the total cases across all states after selecting what groupings we want
   ) |>
-  arrange(year, month) |> #Order by year and month
+  arrange(year, month) |> #Order by year then month
   kable()
            
   
@@ -308,6 +333,7 @@ death |>
     title = "Top 10 US States by Total COVID-19 Deaths",
     x = "State",
     y = "Total Deaths"
-  )
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) #fixed x-axis
   
 ```
